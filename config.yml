@@ -1,4 +1,9 @@
-servers:
-  - 192.168.0.1
-  - 192.168.0.2
-  - 192.168.0.3
+instances_per_node: 4
+backend:
+  type: "sqlite"
+  file: "db.sqlite3"
+hive:
+  servers:
+    - "127.0.0.1"
+  strategy: "even_spread"
+

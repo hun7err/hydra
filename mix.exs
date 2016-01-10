@@ -35,6 +35,7 @@ defmodule Hydra.Mixfile do
       { :yaml_elixir, "~> 1.0.0" },
       { :yamerl, github: "yakaz/yamerl" },
       { :ampule, github: "msantos/ampule" }
+      #{ :erlxc, github: "msantos/erlxc"}
     ]
   end
 end
