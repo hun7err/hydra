@@ -16,7 +16,8 @@ defmodule Hydra.Mixfile do
   def application do
     [applications: [
         :logger,
-        :yaml_elixir
+        :yaml_elixir,
+        :httpotion
       ]
     ]
   end
@@ -34,8 +35,7 @@ defmodule Hydra.Mixfile do
     [
       { :yaml_elixir, "~> 1.0.0" },
       { :yamerl, github: "yakaz/yamerl" },
-      { :ampule, github: "msantos/ampule" }
-      #{ :erlxc, github: "msantos/erlxc"}
+      { :hive, github: "hun7err/Hive", tag: "devel"}
     ]
   end
 end
