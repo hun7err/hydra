@@ -4,6 +4,16 @@ defmodule Hydra do
   # coordinator:
   #   iex --name "coordinator@172.18.0.1" --cookie test
 
+  # TODO:
+  # - make containers register in etcd to store IP addrs
+  # - running deploy script
+  # - finish 3PC + failure handling => log file?
+  # - create a test application
+  # - application deploy script
+  # - test container links
+  # - haproxy
+  # ? distribute containers among nodes
+
   def parseConfig(relative_config_path) do
     full_path = File.cwd! |> Path.join(relative_config_path)
     config = YamlElixir.read_from_file full_path
