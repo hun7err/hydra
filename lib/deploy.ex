@@ -2,7 +2,7 @@ defmodule Deploy do
   def containerParams(container_name) do
     { "/bin/bash",
       ["-c",
-       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && git init && git remote add origin https://github.com/hun7err/hydra.git && git fetch && git checkout -t origin/devel && mix deps.get && iex --name \"" <> container_name <> "@$IP_ADDR\" --cookie test -S mix)"],
+       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && git init && git remote add origin https://github.com/hun7err/hydra.git && git fetch && git checkout -t origin/devel && mix deps.get && iex --name \"cohort@$IP_ADDR\" --cookie test -S mix)"],
       "trenpixster/elixir",
       "hydra0"
     }
