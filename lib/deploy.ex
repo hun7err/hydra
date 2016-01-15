@@ -2,13 +2,14 @@ defmodule Deploy do
   def containerParams(container_name) do
     { "/bin/bash",
       ["-c",
-       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && git init && git remote add origin https://github.com/hun7err/hydra.git && git fetch && git checkout -t origin/devel && mix deps.get && iex --name \"cohort@$IP_ADDR\" --cookie test -S mix)"],
+       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && git init && git remote add origin https://github.com/hun7err/hydra.git && git fetch && git checkout -t origin/devel && mix deps.get && curl -L http://172.18.0.1:2379/v2/keys/" <> container_name <> " -X PUT -d value=\"$IP_ADDR\" && iex --name \"cohort@$IP_ADDR\" --cookie test -S mix)"],
       "trenpixster/elixir",
       "hydra0"
     }
   end
 
-  #sudo docker run --net=hydra0 -i -t trenpixster/elixir /bin/bash -c '(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s " " | cut -d" " -f3 | cut -d/ -f1` && iex --name "cohort@$IP_ADDR" --cookie test)'
+  # etcd -listen-client-urls  "http://0.0.0.0:2379,http://0.0.0.0:4001" -advertise-client-urls "http://0.0.0.0:2379,http://0.0.0.0:4001"
+  # sudo docker run --net=hydra0 -i -t trenpixster/elixir /bin/bash -c '(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s " " | cut -d" " -f3 | cut -d/ -f1` && iex --name "cohort@$IP_ADDR" --cookie test)'
 
   defmodule Cohort do
     defp cleanup() do
@@ -44,7 +45,38 @@ defmodule Deploy do
 
       command_outputs = for container_name <- container_names do
         {command, args, image, network} = Deploy.containerParams container_name
-        Hive.Cluster.run cluster, container_name, [], image, [command | args], network
+        Hive.Cluster.run cluster, container_name, nil, image, [command | args], network
+      end
+
+      case Node.start :"coordinator@172.18.0.1" do
+        {:ok, _} ->
+          IO.puts "node started"
+      end
+      Node.set_cookie :test
+
+      pids = for {_, container} <- command_outputs do
+        ip_addr = Hive.Docker.containerInfo(container)
+          |> Dict.fetch!("NetworkSettings")
+          |> Dict.fetch!("Networks")
+          |> Dict.fetch!("hydra0")
+          |> Dict.fetch!("IPAddress")
+
+        node = String.to_atom("cohort@" <> ip_addr)
+        
+        case Node.connect node do
+          true ->
+            IO.puts "connected"
+          false ->
+            IO.puts "failed to connect"
+          :ignored ->
+            IO.puts "connection ignored"
+        end
+        
+        ping_result = Node.ping node
+        
+        IO.puts "result from ping is :" <> to_string(ping_result)
+        #Node.spawn_link String.to_atom("cohort@" <> ip_addr), fn -> Deploy.Cohort.loop(version) end
+        Node.spawn_link node, fn -> IO.puts("hello world") end
       end
 
       #loop version
