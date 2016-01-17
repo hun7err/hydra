@@ -42,7 +42,6 @@ defmodule Deploy do
     defp gatherNodes(node_count, acc) when length(acc) < node_count do
       receive do
         {:sync, pid} ->
-          IO.puts "got sync! currently " <> to_string(length(acc)+1) <> " nodes sync'd"
           gatherNodes(node_count, [pid|acc])
       end
     end
@@ -52,13 +51,7 @@ defmodule Deploy do
       nodes = for host <- cluster, do: %Hive.Node{host: host}
       cluster = %Hive.Cluster{nodes: nodes}
 
-      case Node.start :"coordinator@172.18.0.1" do
-        {:ok, _} ->
-          IO.puts "node started"
-        {:error, {:already_started, pid}} ->
-          IO.puts "node already started"
-      end     
-      
+      Node.start :"coordinator@172.18.0.1"
       Node.set_cookie :test
       :global.register_name :coordinator, self()
  
