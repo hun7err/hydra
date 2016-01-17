@@ -1,9 +1,9 @@
 defmodule Deploy do
-  def containerParams(container_name) do
+  def containerParams() do
     { "/bin/bash",
       ["-c",
-       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && git init && git remote add origin https://github.com/hun7err/hydra.git && git fetch && git checkout -t origin/devel && mix deps.get && curl -L http://172.18.0.1:2379/v2/keys/" <> container_name <> " -X PUT -d value=\"$IP_ADDR\" && iex --name \"cohort@$IP_ADDR\" --cookie test -S mix)"],
-      "trenpixster/elixir",
+       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && epmd -daemon && iex -e \"Node.start :\\\"cohort@$IP_ADDR\\\"; Node.set_cookie :test; Node.connect :\\\"coordinator@172.18.0.1\\\"\" -S mix run -e \"pid = :global.whereis_name :coordinator; send pid, {:sync, self}\")"],
+      "hydra-elixir",
       "hydra0"
     }
   end
@@ -39,21 +39,37 @@ defmodule Deploy do
   end
 
   defmodule Coordinator do
+    defp gatherNodes(node_count, acc) when length(acc) < node_count do
+      receive do
+        {:sync, pid} ->
+          IO.puts "got sync! currently " <> to_string(length(acc)+1) <> " nodes sync'd"
+          gatherNodes(node_count, [pid|acc])
+      end
+    end
+    defp gatherNodes(node_count, acc) when length(acc) == node_count, do: acc
+
     def init(cluster, container_names, version) do
       nodes = for host <- cluster, do: %Hive.Node{host: host}
       cluster = %Hive.Cluster{nodes: nodes}
 
-      command_outputs = for container_name <- container_names do
-        {command, args, image, network} = Deploy.containerParams container_name
-        Hive.Cluster.run cluster, container_name, nil, image, [command | args], network
-      end
-
       case Node.start :"coordinator@172.18.0.1" do
         {:ok, _} ->
           IO.puts "node started"
-      end
+        {:error, {:already_started, pid}} ->
+          IO.puts "node already started"
+      end     
+      
       Node.set_cookie :test
+      :global.register_name :coordinator, self()
+ 
+      command_outputs = for container_name <- container_names do
+        {command, args, image, network} = Deploy.containerParams
+        Hive.Cluster.run cluster, container_name, nil, image, [command | args], network
+      end
 
+      pids = gatherNodes length(command_outputs), []
+
+      """
       pids = for {_, container} <- command_outputs do
         ip_addr = Hive.Docker.containerInfo(container)
           |> Dict.fetch!("NetworkSettings")
@@ -63,6 +79,7 @@ defmodule Deploy do
 
         node = String.to_atom("cohort@" <> ip_addr)
         
+        Node.set_cookie :test
         case Node.connect node do
           true ->
             IO.puts "connected"
@@ -78,6 +95,8 @@ defmodule Deploy do
         #Node.spawn_link String.to_atom("cohort@" <> ip_addr), fn -> Deploy.Cohort.loop(version) end
         Node.spawn_link node, fn -> IO.puts("hello world") end
       end
+      """
+      #results = for pid <- pids, do: 
 
       #loop version
     end

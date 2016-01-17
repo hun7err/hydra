@@ -1,11 +1,9 @@
-#FROM trenpixster/elixir
-FROM debian
+FROM trenpixster/elixir
 
-RUN apt-get update
-RUN apt-get -y install wget
-RUN wget http://packages.erlang-solutions.com/debian/erlang_solutions.asc && apt-key add erlang_solutions.asc
-RUN wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb && dpkg -i erlang-solutions_1.0_all.deb
-RUN apt-get update
-RUN apt-get -y install esl-erlang elixir
+RUN git init && git remote add origin https://github.com/hun7err/hydra.git
+RUN git fetch
+RUN git checkout -t origin/devel
+RUN mix deps.get
+RUN mix compile
 
 EXPOSE 4369
