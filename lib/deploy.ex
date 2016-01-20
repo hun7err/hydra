@@ -97,7 +97,7 @@ defmodule Deploy do
       receive do
         {:sync, vr, pid} ->
           if vr == version, do:
-            gatherNodes(node_count, version, [pid|acc])
+            gatherNodes(node_count, version, [pid|acc]),
           else:
             gatherNodes(node_count, version, acc)
       after
@@ -111,7 +111,7 @@ defmodule Deploy do
       receive do
         {:agreed_req, vr, pid} ->
           if vr == version, do:
-            syncAfterCommitRequest(node_count, version, [pid|acc])
+            syncAfterCommitRequest(node_count, version, [pid|acc]),
           else:
             syncAfterCommitRequest(node_count, version, acc)
         {:abort_req, version, reason} ->
