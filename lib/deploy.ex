@@ -22,7 +22,7 @@ defmodule Deploy do
     File.touch path
 
     {:ok, script} = File.open path, [:write]
-    File.binwrite script, content
+    IO.binwrite script, content
     File.close script
 
     {out, code} = System.cmd "chmod", ["+x", path]
