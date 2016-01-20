@@ -16,7 +16,7 @@ defmodule Deploy do
   end
   def sendAll(list, _) when list == [], do: []
 
-  def runScript(name, content) do
+  def runScript(id, name, content) do
     path = "/tmp/" <> name <> ".run"
     File.rm path
     File.touch path
@@ -34,55 +34,57 @@ defmodule Deploy do
         {out, code} = System.cmd path, []
         case code do
           0 ->
+            IO.puts "node " <> id <> " runScript OK"
             {:ok, out}
           _ ->
+            IO.puts "node " <> id <> " runScript FAIL. code: " <> to_string(code) <> ", out: " <> out
             {:error, "return code: " <> to_string(code) <> ", out: " <> out}
         end
     end
   end
 
   defmodule Cohort do
-    defp cleanup(cleanup_script) do
-      Deploy.runScript "cleanup", cleanup_script
+    defp cleanup(id, cleanup_script) do
+      Deploy.runScript id, "cleanup", cleanup_script
       File.rm "/tmp/cleanup.run"
     end
 
-    def loop(version, coordinator, cleanup_script \\ "", state \\ :initial) do
+    def loop(id, version, coordinator, cleanup_script \\ "", state \\ :initial) do
       receive do
         {:commit_request, version_number, deploy_script} -> 
           if version == version_number do
-            IO.puts "commit request nr " <> to_string version_number
+            IO.puts "node " <> id <> " received commit request nr " <> to_string version_number
 
-            case Deploy.runScript("deploy", deploy_script) do
+            case Deploy.runScript(id, "deploy", deploy_script) do
               {:ok, _} ->
                 send coordinator, {:agreed_req, version, self}
 
-                loop version, coordinator, cleanup_script, :waiting
+                loop id, version, coordinator, cleanup_script, :waiting
               {:error, reason} ->
                 send coordinator, {:abort_req, version, reason}
 
-                loop version, coordinator, cleanup_script, :abort
+                loop id, version, coordinator, cleanup_script, :abort
             end # case Deploy.runScript
           else
-            loop version, coordinator, cleanup_script, state
+            loop id, version, coordinator, cleanup_script, state
           end # if version == version_number
         {:abort, version_number} ->
           if version == version_number do
-            IO.puts "abort nr " <> to_string version_number
-            cleanup(cleanup_script)
+            IO.puts "node " <> id <> "received abort nr " <> to_string version_number
+            cleanup id, cleanup_script
 
             :abort
           else
-            loop version, coordinator, cleanup_script, state
+            loop id, version, coordinator, cleanup_script, state
           end
         {:prepare, version_number} -> 
           if version == version_number do
-            IO.puts "prepare nr " <> to_string version_number
+            IO.puts "node " <> id <> " received prepare nr " <> to_string version_number
             send(coordinator, {:prepare_ack, version})
 
-            loop version, coordinator, cleanup_script, :prepare
+            loop id, version, coordinator, cleanup_script, :prepare
           else
-            loop version, coordinator, cleanup_script, state
+            loop id, version, coordinator, cleanup_script, state
           end
         {:commit, version_number} ->
           if version == version_number do
@@ -91,13 +93,13 @@ defmodule Deploy do
 
             :commit
           else
-            loop version, coordinator, cleanup_script, state
+            loop id, version, coordinator, cleanup_script, state
           end
       after
         30_000 -> # timeout
           case state do
             st when st in [:waiting, :abort] ->
-              cleanup(cleanup_script)
+              cleanup id, cleanup_script
           end # case state do
       end # receive do
     end # def loop
@@ -176,7 +178,7 @@ defmodule Deploy do
           |> Dict.fetch!("IPAddress")
 
         node = String.to_atom("cohort@" <> ip_addr)
-        Node.spawn_link node, Deploy.Cohort, :loop, [version, self, cleanup_script]
+        Node.spawn_link node, Deploy.Cohort, :loop, [container.id, version, self, cleanup_script]
       end
 
       IO.puts "[*] All nodes spawned, synchronizing..."
