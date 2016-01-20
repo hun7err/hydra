@@ -1,8 +1,8 @@
 defmodule Deploy do
-  def containerParams() do
+  def containerParams(version) do
     { "/bin/bash",
       ["-c",
-       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && epmd -daemon && iex -e \"Node.start :\\\"cohort@$IP_ADDR\\\"; Node.set_cookie :test; Node.connect :\\\"coordinator@172.18.0.1\\\"\" -S mix run -e \"pid = :global.whereis_name :coordinator; send pid, {:sync, self}\")"],
+       "(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s \" \" | cut -d\" \" -f3 | cut -d/ -f1` && epmd -daemon && iex -e \"Node.start :\\\"cohort@$IP_ADDR\\\"; Node.set_cookie :test; Node.connect :\\\"coordinator@172.18.0.1\\\"\" -S mix run -e \"pid = :global.whereis_name :coordinator; send pid, {:sync," <> to_string(version) <> ",self}\")"],
       "hydra-elixir",
       "hydra0"
     }
@@ -147,7 +147,7 @@ defmodule Deploy do
       :global.register_name :coordinator, self()
  
       command_outputs = for container_name <- container_names do
-        {command, args, image, network} = Deploy.containerParams
+        {command, args, image, network} = Deploy.containerParams version
         Hive.Cluster.run cluster, container_name, nil, image, [command | args], network
       end
 
