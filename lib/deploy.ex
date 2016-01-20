@@ -36,7 +36,7 @@ defmodule Deploy do
           0 ->
             {:ok, out}
           _ ->
-            {:error, out}
+            {:error, "return code: " <> to_string(code) <> ", out: " <> out}
         end
     end
   end
@@ -152,7 +152,7 @@ defmodule Deploy do
     end
     def syncAfterPrepare(node_count, _, counter) when counter == node_count, do: :ok
 
-    def init(cluster, container_names, version, deploy_script \\ "", cleanup_script \\ "") do
+    def init(cluster, container_names, version, deploy_script \\ "#!/bin/bash\necho 'deploy'", cleanup_script \\ "#!/bin/bash\necho 'cleanup'") do
       nodes = for host <- cluster, do: %Hive.Node{host: host}
       cluster = %Hive.Cluster{nodes: nodes}
 
