@@ -27,19 +27,20 @@ defmodule Deploy do
 
     {out, code} = System.cmd "chmod", ["+x", path]
     
-    case code do
+    case code do 
       0 ->
-        {:error, out}
-      _ ->
         {out, code} = System.cmd path, []
         case code do
           0 ->
             IO.puts "node " <> id <> " runScript OK"
             {:ok, out}
           _ ->
-            IO.puts "node " <> id <> " runScript FAIL. code: " <> to_string(code) <> ", out: " <> out
+            IO.puts "node " <> id <> " runScript FAIL, code: " <> to_string(code) <> ", out: " <> out
             {:error, "return code: " <> to_string(code) <> ", out: " <> out}
         end
+      _ ->
+        IO.puts "node " <> id <> " FAIL, could not chmod script for " <> name <> ". Code: " <> to_string(code) <> ", out: " <> out
+        {:error, out}
     end
   end
 
@@ -70,7 +71,7 @@ defmodule Deploy do
           end # if version == version_number
         {:abort, version_number} ->
           if version == version_number do
-            IO.puts "node " <> id <> "received abort nr " <> to_string version_number
+            IO.puts "node " <> id <> " received abort nr " <> to_string version_number
             cleanup id, cleanup_script
 
             :abort
