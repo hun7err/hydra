@@ -101,6 +101,8 @@ defmodule Deploy do
           case state do
             st when st in [:waiting, :abort] ->
               cleanup id, cleanup_script
+            _ ->
+              IO.puts "node " <> id <> " receive timeout in state \"" <> to_string(state) <> "\""
           end # case state do
       end # receive do
     end # def loop
@@ -188,6 +190,8 @@ defmodule Deploy do
     end
 
     def loop(version, nodes, node_count, state \\ :initial, param \\ "") do
+      IO.puts "Coordinator entering the \"" <> to_string(state) <> "\" state"
+      
       case state do
         :initial ->
           Deploy.sendAll nodes, {:commit_request, version, param}
@@ -197,8 +201,6 @@ defmodule Deploy do
             {:error, reason} ->
               loop version, nodes, node_count, :abort, reason
             {:ok, _} ->
-              loop version, nodes, node_count, :commit, param
-
               Deploy.sendAll nodes, {:prepare, version}
               case syncAfterPrepare(node_count, version) do
                 {:error, reason} ->
@@ -208,6 +210,7 @@ defmodule Deploy do
               end # case syncAfterPrepare
           end # case syncAfterCommitRequest
         :commit ->
+          Deploy.sendAll nodes, {:commit, version}
           IO.puts "[+] Deploy finished successfully"
           :ok
         :abort ->
