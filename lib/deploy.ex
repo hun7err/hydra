@@ -202,14 +202,16 @@ defmodule Deploy do
             {:error, reason} ->
               loop version, nodes, node_count, :abort, reason
             {:ok, _} ->
-              Deploy.sendAll nodes, {:prepare, version}
-              case syncAfterPrepare(node_count, version) do
-                {:error, reason} ->
-                  loop version, nodes, node_count, :abort, reason
-                :ok ->
-                  loop version, nodes, node_count, :commit, param
-              end # case syncAfterPrepare
-          end # case syncAfterCommitRequest
+              loop version, nodes, node_count, :prepare, param
+          end
+        :prepare ->
+          Deploy.sendAll nodes, {:prepare, version}
+          case syncAfterPrepare(node_count, version) do
+            {:error, reason} ->
+              loop version, nodes, node_count, :abort, reason
+            :ok ->
+              loop version, nodes, node_count, :commit, param
+          end
         :commit ->
           Deploy.sendAll nodes, {:commit, version}
           IO.puts "[+] Deploy finished successfully"
@@ -221,4 +223,4 @@ defmodule Deploy do
       end # case state do
     end # def loop
   end # defmodule Coordinator
-end
+end # defmodule Deploy
