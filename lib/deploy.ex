@@ -105,7 +105,7 @@ defmodule Deploy do
           raise "[!] Container synchronisation timeout"
       end
     end
-    defp gatherNodes(node_count, acc) when length(acc) == node_count, do: acc
+    defp gatherNodes(node_count, _, acc) when length(acc) == node_count, do: acc
 
     defp syncAfterCommitRequest(node_count, version, acc) when length(acc) < node_count do
       receive do
