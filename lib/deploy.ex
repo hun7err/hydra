@@ -16,7 +16,7 @@ defmodule Deploy do
   end
   def sendAll(list, message) when list == [], do: []
 
-  defp runScript(name, content) do
+  def runScript(name, content) do
     path = "/tmp/" <> name <> ".run"
     File.rm path
     File.touch path
