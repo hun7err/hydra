@@ -55,7 +55,7 @@ defmodule Deploy do
           if version == version_number do
             case Deploy.runScript("deploy", deploy_script) do
               {:ok, _} ->
-                send coordinator, {:agreed_req, version}
+                send coordinator, {:agreed_req, version, self}
 
                 loop version, coordinator, cleanup_script, :waiting
               {:error, reason} ->
@@ -93,10 +93,13 @@ defmodule Deploy do
   end # def loop
 
   defmodule Coordinator do
-    defp gatherNodes(node_count, acc) when length(acc) < node_count do
+    defp gatherNodes(node_count, version, acc) when length(acc) < node_count do
       receive do
-        {:sync, pid} ->
-          gatherNodes(node_count, [pid|acc])
+        {:sync, vr, pid} ->
+          if vr == version, do:
+            gatherNodes(node_count, version, [pid|acc])
+          else:
+            gatherNodes(node_count, version, acc)
       after
         15_000 ->
           raise "[!] Container synchronisation timeout"
@@ -104,10 +107,13 @@ defmodule Deploy do
     end
     defp gatherNodes(node_count, acc) when length(acc) == node_count, do: acc
 
-    defp syncAfterCommitRequest(node_count, acc) when length(acc) < node_count do
+    defp syncAfterCommitRequest(node_count, version, acc) when length(acc) < node_count do
       receive do
-        {:agreed_req, pid} ->
-          syncAfterCommitRequest(node_count, [pid|acc])
+        {:agreed_req, vr, pid} ->
+          if vr == version, do:
+            syncAfterCommitRequest(node_count, version, [pid|acc])
+          else:
+            syncAfterCommitRequest(node_count, version, acc)
         {:abort_req, version, reason} ->
           {:error, reason}
       after
@@ -115,7 +121,7 @@ defmodule Deploy do
           {:error, "node timeout (commit request)"}
       end
     end
-    defp syncAfterCommitRequest(node_count, acc) when length(acc) == node_count, do: {:ok, acc}
+    defp syncAfterCommitRequest(node_count, _, acc) when length(acc) == node_count, do: {:ok, acc}
 
     def syncAfterPrepare(node_count, version, counter \\ 0) when counter < node_count do
       receive do
@@ -146,7 +152,7 @@ defmodule Deploy do
       end
 
       node_count = length command_outputs
-      pids = gatherNodes length(command_outputs), []  # simple synchronization barrier
+      pids = gatherNodes length(command_outputs), version, []  # simple synchronization barrier
 
       nodes = for {_, container} <- command_outputs do
         ip_addr = Hive.Docker.containerInfo(container)
@@ -170,10 +176,10 @@ defmodule Deploy do
           Deploy.sendAll nodes, {:commit_request, version, param}
           loop version, nodes, node_count, :waiting, param
         :waiting ->
-          case syncAfterCommitRequest node_count, [] do
-            {:error, vr, reason} when vr == version ->
+          case syncAfterCommitRequest node_count, version, [] do
+            {:error, reason} ->
               loop version, nodes, node_count, :abort, reason
-            {:ok, vr} when vr == version ->
+            {:ok, _} ->
               loop version, nodes, node_count, :commit, param
 
               Deploy.sendAll nodes, {:prepare, version}
