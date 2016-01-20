@@ -8,46 +8,131 @@ defmodule Deploy do
     }
   end
 
-  # etcd -listen-client-urls  "http://0.0.0.0:2379,http://0.0.0.0:4001" -advertise-client-urls "http://0.0.0.0:2379,http://0.0.0.0:4001"
-  # sudo docker run --net=hydra0 -i -t trenpixster/elixir /bin/bash -c '(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s " " | cut -d" " -f3 | cut -d/ -f1` && iex --name "cohort@$IP_ADDR" --cookie test)'
+  def sendAll(list, message) when list != [] do
+    [pid|tail] = list
+    ret = send pid, message
+
+    [ret|sendAll(tail, message)]
+  end
+  def sendAll(list, message) when list == [], do: []
+
+  defp runScript(name, content) do
+    path = "/tmp/" <> name <> ".run"
+    File.rm path
+    File.touch path
+
+    {:ok, script} = File.open path, [:write]
+    File.binwrite script, content
+    File.close script
+
+    {out, code} = System.cmd "chmod", ["+x", path]
+    
+    case code do
+      0 ->
+        {:error, out}
+      _ ->
+        {out, code} = System.cmd path, []
+        case code do
+          0 ->
+            {:ok, out}
+          _ ->
+            {:error, out}
+        end
+    end
+  end
 
   defmodule Cohort do
-    defp cleanup() do
+    defp cleanup(cleanup_script) do
+      Deploy.runScript "cleanup", cleanup_script
+      File.rm "/tmp/cleanup.run"
     end
 
-    def loop(version, state \\ :initial) do # can return :cleanup or
+    def loop(version, coordinator, cleanup_script \\ "", state \\ :initial) do
       receive do
         {:commit_request, version_number, deploy_script} ->
           IO.puts "commit request nr " <> to_string version_number
-          # here do some deploy stuff (launching the deploy script)
-          new_state = :commit # here should be the return code of deploy()
-          loop version, new_state
+         
+          if version == version_number do
+            case Deploy.runScript("deploy", deploy_script) do
+              {:ok, _} ->
+                send coordinator, {:agreed_req, version}
+
+                loop version, coordinator, cleanup_script, :waiting
+              {:error, reason} ->
+                send coordinator, {:abort_req, version, reason}
+
+                loop version, coordinator, cleanup_script, :abort
+            end # case Deploy.runScript
+          else
+            loop version, coordinator, cleanup_script, state
+          end # if version == version_number
         {:abort, version_number} ->
-          :cleanup
+          IO.puts "abort nr " <> to_string version_number
+          cleanup(cleanup_script)
+
+          :abort
         {:prepare, version_number} ->
-          loop version, :prepare
+          IO.puts "prepare nr " <> to_string version_number
+          
+          if version == version_number, do: send(coordinator, {:prepare_ack, version})
+
+          loop version, coordinator, cleanup_script, :prepare
         {:commit, version_number} ->
+          File.rm "/tmp/deploy.run"
+          File.rm "/tmp/cleanup.run"
+
           :commit
       after
-        5 -> # timeout
+        30_000 -> # timeout
           case state do
-            st when st in [:agreed, :abort] ->
-              :cleanup
-          end
-      end
-    end
-  end
+            st when st in [:waiting, :abort] ->
+              cleanup(cleanup_script)
+          end # case state do
+      end # receive do
+    end # def loop
+  end # def loop
 
   defmodule Coordinator do
     defp gatherNodes(node_count, acc) when length(acc) < node_count do
       receive do
         {:sync, pid} ->
           gatherNodes(node_count, [pid|acc])
+      after
+        15_000 ->
+          raise "[!] Container synchronisation timeout"
       end
     end
     defp gatherNodes(node_count, acc) when length(acc) == node_count, do: acc
 
-    def init(cluster, container_names, version) do
+    defp syncAfterCommitRequest(node_count, acc) when length(acc) < node_count do
+      receive do
+        {:agreed_req, pid} ->
+          syncAfterCommitRequest(node_count, [pid|acc])
+        {:abort_req, version, reason} ->
+          {:error, reason}
+      after
+        30_000 ->
+          {:error, "node timeout (commit request)"}
+      end
+    end
+    defp syncAfterCommitRequest(node_count, acc) when length(acc) == node_count, do: {:ok, acc}
+
+    def syncAfterPrepare(node_count, version, counter \\ 0) when counter < node_count do
+      receive do
+        {:prepare_ack, vr} ->
+          if vr == version do
+            syncAfterPrepare(node_count, version, counter+1)
+          else
+            syncAfterPrepare(node_count, version, counter)
+          end
+      after
+        30_000 ->
+          {:error, "node timeout (prepare)"}
+      end
+    end
+    def syncAfterPrepare(node_count, version, counter) when counter == node_count, do: :ok
+
+    def init(cluster, container_names, version, deploy_script \\ "", cleanup_script \\ "") do
       nodes = for host <- cluster, do: %Hive.Node{host: host}
       cluster = %Hive.Cluster{nodes: nodes}
 
@@ -60,10 +145,10 @@ defmodule Deploy do
         Hive.Cluster.run cluster, container_name, nil, image, [command | args], network
       end
 
-      pids = gatherNodes length(command_outputs), []
+      node_count = length command_outputs
+      pids = gatherNodes length(command_outputs), []  # simple synchronization barrier
 
-      """
-      pids = for {_, container} <- command_outputs do
+      nodes = for {_, container} <- command_outputs do
         ip_addr = Hive.Docker.containerInfo(container)
           |> Dict.fetch!("NetworkSettings")
           |> Dict.fetch!("Networks")
@@ -71,32 +156,42 @@ defmodule Deploy do
           |> Dict.fetch!("IPAddress")
 
         node = String.to_atom("cohort@" <> ip_addr)
-        
-        Node.set_cookie :test
-        case Node.connect node do
-          true ->
-            IO.puts "connected"
-          false ->
-            IO.puts "failed to connect"
-          :ignored ->
-            IO.puts "connection ignored"
-        end
-        
-        ping_result = Node.ping node
-        
-        IO.puts "result from ping is :" <> to_string(ping_result)
-        #Node.spawn_link String.to_atom("cohort@" <> ip_addr), fn -> Deploy.Cohort.loop(version) end
-        Node.spawn_link node, fn -> IO.puts("hello world") end
+        Node.spawn_link node, Deploy.Cohort, :loop, [version, self, cleanup_script]
       end
-      """
-      #results = for pid <- pids, do: 
 
-      #loop version
+      IO.puts "[*] All nodes spawned, synchronizing..."
+
+      loop version, nodes, node_count, :initial, deploy_script
     end
 
-    def loop(version, state \\ :initial) do
-      receive do
-      end
-    end
-  end
+    def loop(version, nodes, node_count, state \\ :initial, param \\ "") do
+      case state do
+        :initial ->
+          Deploy.sendAll nodes, {:commit_request, version, param}
+          loop version, nodes, node_count, :waiting, param
+        :waiting ->
+          case syncAfterCommitRequest node_count, [] do
+            {:error, vr, reason} when vr == version ->
+              loop version, nodes, node_count, :abort, reason
+            {:ok, vr} when vr == version ->
+              loop version, nodes, node_count, :commit, param
+
+              Deploy.sendAll nodes, {:prepare, version}
+              case syncAfterPrepare(node_count, version) do
+                {:abort, vr, reason} ->
+                  loop version, nodes, node_count, :abort, reason
+                :ok ->
+                  loop version, nodes, node_count, :commit, param
+              end # case syncAfterPrepare
+          end # case syncAfterCommitRequest
+        :commit ->
+          IO.puts "[+] Deploy finished successfully"
+          :ok
+        :abort ->
+          Deploy.sendAll nodes, {:abort, version}
+          IO.puts "[!] Deploy failed due to at least one node failing. Reason: \"" <> param <> "\""
+          {:error, param}
+      end # case state do
+    end # def loop
+  end # defmodule Coordinator
 end

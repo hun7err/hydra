@@ -1,2 +1,0 @@
-defmodule ContainerAgent do
-end
