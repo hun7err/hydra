@@ -14,7 +14,7 @@ defmodule Deploy do
 
     [ret|sendAll(tail, message)]
   end
-  def sendAll(list, message) when list == [], do: []
+  def sendAll(list, _) when list == [], do: []
 
   def runScript(name, content) do
     path = "/tmp/" <> name <> ".run"
@@ -49,10 +49,10 @@ defmodule Deploy do
 
     def loop(version, coordinator, cleanup_script \\ "", state \\ :initial) do
       receive do
-        {:commit_request, version_number, deploy_script} ->
-          IO.puts "commit request nr " <> to_string version_number
-         
+        {:commit_request, version_number, deploy_script} -> 
           if version == version_number do
+            IO.puts "commit request nr " <> to_string version_number
+
             case Deploy.runScript("deploy", deploy_script) do
               {:ok, _} ->
                 send coordinator, {:agreed_req, version, self}
@@ -67,21 +67,32 @@ defmodule Deploy do
             loop version, coordinator, cleanup_script, state
           end # if version == version_number
         {:abort, version_number} ->
-          IO.puts "abort nr " <> to_string version_number
-          cleanup(cleanup_script)
+          if version == version_number do
+            IO.puts "abort nr " <> to_string version_number
+            cleanup(cleanup_script)
 
-          :abort
-        {:prepare, version_number} ->
-          IO.puts "prepare nr " <> to_string version_number
-          
-          if version == version_number, do: send(coordinator, {:prepare_ack, version})
+            :abort
+          else
+            loop version, coordinator, cleanup_script, state
+          end
+        {:prepare, version_number} -> 
+          if version == version_number do
+            IO.puts "prepare nr " <> to_string version_number
+            send(coordinator, {:prepare_ack, version})
 
-          loop version, coordinator, cleanup_script, :prepare
+            loop version, coordinator, cleanup_script, :prepare
+          else
+            loop version, coordinator, cleanup_script, state
+          end
         {:commit, version_number} ->
-          File.rm "/tmp/deploy.run"
-          File.rm "/tmp/cleanup.run"
+          if version == version_number do
+            File.rm "/tmp/deploy.run"
+            File.rm "/tmp/cleanup.run"
 
-          :commit
+            :commit
+          else
+            loop version, coordinator, cleanup_script, state
+          end
       after
         30_000 -> # timeout
           case state do
@@ -114,8 +125,11 @@ defmodule Deploy do
             syncAfterCommitRequest(node_count, version, [pid|acc]),
           else:
             syncAfterCommitRequest(node_count, version, acc)
-        {:abort_req, version, reason} ->
-          {:error, reason}
+        {:abort_req, vr, reason} ->
+          if vr == version, do:
+            {:error, reason},
+          else:
+            syncAfterCommitRequest(node_count, version, acc)
       after
         30_000 ->
           {:error, "node timeout (commit request)"}
@@ -136,7 +150,7 @@ defmodule Deploy do
           {:error, "node timeout (prepare)"}
       end
     end
-    def syncAfterPrepare(node_count, version, counter) when counter == node_count, do: :ok
+    def syncAfterPrepare(node_count, _, counter) when counter == node_count, do: :ok
 
     def init(cluster, container_names, version, deploy_script \\ "", cleanup_script \\ "") do
       nodes = for host <- cluster, do: %Hive.Node{host: host}
@@ -152,7 +166,7 @@ defmodule Deploy do
       end
 
       node_count = length command_outputs
-      pids = gatherNodes length(command_outputs), version, []  # simple synchronization barrier
+      gatherNodes length(command_outputs), version, []  # simple synchronization barrier
 
       nodes = for {_, container} <- command_outputs do
         ip_addr = Hive.Docker.containerInfo(container)
@@ -184,7 +198,7 @@ defmodule Deploy do
 
               Deploy.sendAll nodes, {:prepare, version}
               case syncAfterPrepare(node_count, version) do
-                {:abort, vr, reason} ->
+                {:error, reason} ->
                   loop version, nodes, node_count, :abort, reason
                 :ok ->
                   loop version, nodes, node_count, :commit, param
