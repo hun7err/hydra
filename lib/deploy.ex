@@ -159,12 +159,21 @@ defmodule Deploy do
     def syncAfterPrepare(node_count, _, counter) when counter == node_count, do: :ok
 
     def init(cluster, container_names, version, deploy_script \\ "#!/bin/bash\necho 'deploy'", cleanup_script \\ "#!/bin/bash\necho 'cleanup'") do
-      nodes = for host <- cluster, do: %Hive.Node{host: host}
-      cluster = %Hive.Cluster{nodes: nodes}
+      #nodes = for host <- cluster, do: %Hive.Node{host: host}
+      #cluster = %Hive.Cluster{nodes: nodes}
 
       Node.start :"coordinator@172.18.0.1"
       Node.set_cookie :test
       :global.register_name :coordinator, self()
+
+      if version == 0 do
+        project_name = hd tl String.split(hd(container_names), "-")
+        containers = Hive.Cluster.containers cluster, false, %{"name": ["hydra-" <> project_name]}
+        last_version = hd tl tl String.split(hd(for container <- containers, do: hd(Dict.get(container, "Names"))), "-")
+        version = String.to_integer(String.slice(last_version, 1..-1))+1
+      end
+
+      container_names = for name <- container_names, do: String.replace(name, "-v0", "-v" <> to_string(version))
  
       command_outputs = for container_name <- container_names do
         {command, args, image, network} = Deploy.containerParams version
@@ -215,11 +224,16 @@ defmodule Deploy do
         :commit ->
           Deploy.sendAll nodes, {:commit, version}
           IO.puts "[+] Deploy finished successfully"
-          :ok
+
+          if version > 1 do
+            # here all containers from previous version should be removed
+          end
+
+          {:ok, version}
         :abort ->
           Deploy.sendAll nodes, {:abort, version}
           IO.puts "[!] Deploy failed due to at least one node failing. Reason: \"" <> param <> "\""
-          {:error, param}
+          {:error, version, param}
       end # case state do
     end # def loop
   end # defmodule Coordinator
