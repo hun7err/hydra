@@ -89,6 +89,7 @@ defmodule Deploy do
           end
         {:commit, version_number} ->
           if version == version_number do
+            IO.puts "node " <> id <> " received commit nr " <> to_string version_number
             File.rm "/tmp/deploy.run"
             File.rm "/tmp/cleanup.run"
 
