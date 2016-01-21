@@ -79,7 +79,8 @@ defmodule Deploy do
             loop id, version, coordinator, cleanup_script, state
           end
         {:prepare, version_number} -> 
-          if version == version_number and id != 1 do # and id != 1 added
+          #if version == version_number and :random.uniform() < 0.4 do # and id != 1 added
+          if false do
             IO.puts "node " <> id <> " received prepare nr " <> to_string version_number
             send(coordinator, {:prepare_ack, version})
 
