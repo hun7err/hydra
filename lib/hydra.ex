@@ -16,16 +16,16 @@ defmodule Hydra do
 
   def parseConfig(relative_config_path) do
     full_path = File.cwd! |> Path.join(relative_config_path)
-    config = YamlElixir.read_from_file full_path
+    YamlElixir.read_from_file full_path
   end
 
   def containerNames(project_name, version, counter, offset \\ 0, acc \\ []) when counter > 0 do
     acc = ["hydra-" <> project_name <> "-v" <> to_string(version) <> "-node" <> to_string(counter+offset) | acc]
     containerNames(project_name, version, counter-1, offset, acc)
   end
-  def containerNames(project_name, version, counter, offset, acc) when counter == 0, do: acc
+  def containerNames(_, _, counter, _, acc) when counter == 0, do: acc
 
-  def init(project_name, deploy_script \\ "", config_path \\ "config.yml") do
+  def init(project_name, deploy_script \\ "#!/bin/bash\necho 'deploy'", config_path \\ "config.yml") do
     config = parseConfig config_path
     servers = Dict.fetch!(Dict.fetch!(config, "hive"), "servers")
  
@@ -34,10 +34,10 @@ defmodule Hydra do
 
     project_name = String.replace project_name, " ", "_"
     containers = containerNames project_name, 1, Dict.fetch!(config, "instances_per_node")
-    Deploy.Coordinator.init servers, containers, 1
+    Deploy.Coordinator.init cluster, containers, 1, deploy_script
   end
 
-  def deploy(project_name, deploy_script \\ "", config_path \\ "config.yml") do
+  def deploy(project_name, deploy_script \\ "#!/bin/bash\necho 'deploy'", config_path \\ "config.yml") do
     config = parseConfig config_path
     servers = Dict.fetch!(Dict.fetch!(config, "hive"), "servers")
 
@@ -48,9 +48,9 @@ defmodule Hydra do
     nodes = for host <- servers, do: %Hive.Node{host: host}
     cluster = %Hive.Cluster{nodes: nodes}
     
-    case Deploy.Coordinator.init(cluster, containers, 0) do
+    case Deploy.Coordinator.init(cluster, containers, 0, deploy_script) do
       {:error, version, reason} ->
-        IO.puts "Deploy failed. Reason: " <> reason
+        IO.puts "Deploy failed for version " <> to_string(version) <> ". Reason: " <> reason
       {:ok, version} ->
         names = containerNames project_name, version-1, node_count
         conts = for container <- Hive.Cluster.containers(cluster, false, %{"name": names}), do:
