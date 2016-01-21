@@ -1,9 +1,4 @@
 defmodule Hydra do
-  # cohort:
-  #   sudo docker run --net=hydra0 -i -t trenpixster/elixir /bin/bash -c '(export IP_ADDR=`ip a | tail -4 | head -1 | tr -s " " | cut -d" " -f3 | cut -d/ -f1` && iex --name "cohort@$IP_ADDR" --cookie test)'
-  # coordinator:
-  #   iex --name "coordinator@172.18.0.1" --cookie test
-
   # TODO:
   # - create a test application
   # - application deploy script
