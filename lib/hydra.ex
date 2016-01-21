@@ -5,9 +5,6 @@ defmodule Hydra do
   #   iex --name "coordinator@172.18.0.1" --cookie test
 
   # TODO:
-  # - make containers register in etcd to store IP addrs
-  # - running deploy script
-  # - finish 3PC + failure handling => log file?
   # - create a test application
   # - application deploy script
   # - test container links
